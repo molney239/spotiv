@@ -1,63 +1,50 @@
 import vk_api
-import requests
 import config
 import time
+import spotipy
 
-
-def get_current_track(access_token):
-    response = requests.get(
-        'https://api.spotify.com/v1/me/player/currently-playing',
-        headers={
-            "Authorization": f"Bearer {access_token}"
-        }
-    )
-
-    if (response.status_code == 204):
-        return {
-            "is": False,
-            "id": None
-        }
-
-    json_resp = response.json()
-
-    track_id = json_resp['item']['id']
-    track_name = json_resp['item']['name']
-    artists = [artist for artist in json_resp['item']['artists']]
-
-    link = json_resp['item']['external_urls']['spotify']
-
-    artist_names = ', '.join([artist['name'] for artist in artists])
-
-    current_track_info = {
-        "is": True,
-    	"id": track_id,
-    	"track_name": track_name,
-    	"artists": artist_names,
-    	"link": link
-    }
-
-    return current_track_info
-
+def authorize_spotify():
+    token = spotipy.util.prompt_for_user_token(config.USERNAME, "user-read-currently-playing", config.CLIENT_ID, config.CLIENT_SECRET, "http://localhost:8888/callback")
+    return spotipy.Spotify(auth=token)
 
 if __name__ == "__main__":
 
     vk_session = vk_api.VkApi(token = config.VK_ACCESS_TOKEN)
     vk = vk_session.get_api()
 
+    print("VK authorization succesful")
+
+    sp = authorize_spotify()
+
+    print(f"Spotify authorization succesful")
+
     last_id = -1
     while True:
-        try:
-            track = get_current_track(config.SPOTIFY_ACCESS_TOKEN)
+        current_id = -1
+        track = None
 
-            if (track['id'] != last_id):
-                last_id = track['id']
-                new_status = ""
-                if track["is"]:
-                    new_status = f"Listening to {track['artists']} - \"{track['track_name']}\" in Spotify"
+        try:
+            track = sp.current_user_playing_track()
+        except Exception as e:
+            print("Failed to get current song:", e)
+            continue
+
+        if track != None:
+            current_id = track['item']['id']
+        
+        if current_id != last_id:
+            last_id = current_id
+            new_status = ""
+            if current_id != -1:
+                new_status = f"Listening to {track['item']['artists'][0]['name']} - \"{track['item']['name']}\" in Spotify"
+
+            try:
                 vk_session.method("status.set", {"text": new_status})
                 print(f"Succesfully changed status: {new_status}")
-            else:
-                print("Track not changed")
-        except Exception as e:
-            print("An error occured: ", e)
+            except Exception as e:
+                print("An error occured while changing status:", e.with_traceback)
+                continue
+        else:
+            print("Track not changed")
+
         time.sleep(5)
